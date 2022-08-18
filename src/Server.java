@@ -1,15 +1,14 @@
 import org.json.simple.DeserializationException;
 import org.json.simple.JsonObject;
 import org.json.simple.Jsoner;
-
-import javax.imageio.event.IIOWriteProgressListener;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 class Server {
     public static void main(String[] args) throws IOException {
@@ -21,26 +20,34 @@ class MyServer{
     private static final Map<Subject, IncomingClientModel> deliveryPeople = new LinkedHashMap<>();
     private static final Map<Subject, IncomingClientModel> restaurants = new LinkedHashMap<>();
 
-    private static final List<String> files = List.of(new String[]{"CommercialEndUsers.txt", "DeliveryPeople.txt", "Restaurants.txt"});
+    private static final List<String> files = List.of(new String[]{"_CommercialEndUsers.txt", "_DeliveryPeople.txt", "_Restaurants.txt"});
 
     MyServer(int port) throws IOException {
+        AtomicBoolean flag = new AtomicBoolean(true);
         deserializeAll();
         ServerSocket serverSocket = new ServerSocket(port);
-        while (true){
+        new Thread(() ->  {
+            String code;
+            do{
+                code = new Scanner(System.in).nextLine();
+            }while (!code.equals("Code-Red"));
+            serializeAll();
+            flag.set(false);
+        }).start();
+        while (flag.get()){
             try{
+                System.out.println("flag state inside " + flag.get());
                 new IncomingClientModel(serverSocket.accept()).run();
             }catch (InterruptedIOException e){
                 break;
             }
         }
-        serializeAll();
-
     }
     private void populate(ObjectInputStream objectInputStream, FileInputStream fileInputStream,  Map<Subject, IncomingClientModel> subjects) throws IOException {
         while (fileInputStream.available() != 0){
             try{
                 subjects.put((Subject) objectInputStream.readObject(), null);
-                fileInputStream.skip(4L);
+                //fileInputStream.skip(4L);
             } catch (IOException | ClassNotFoundException e){
                 break;
             }
@@ -66,7 +73,7 @@ class MyServer{
         for(String file : files) {
             System.out.println("Deserializing " + file);
             try {
-                fileInputStream = new FileInputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\_" + file);
+                fileInputStream = new FileInputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\" + file);
             } catch (FileNotFoundException fileNotFoundException) {
                 System.out.println("FileNotFound");
             }
@@ -85,16 +92,15 @@ class MyServer{
         }
     }
     @Deprecated(forRemoval = true)
-    private static void serializeAll(){
+    private synchronized static void serializeAll(){
         for(String file : files) {
             System.out.println("Serializing " + file);
             FileOutputStream fileOutputStream = null;
             try {
-                fileOutputStream = new FileOutputStream("Classified\\" + file);
+                fileOutputStream = new FileOutputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\" + file);
             } catch (FileNotFoundException fileNotFoundException) {
                 System.out.println("FileNotFound");
             }
-            assert fileOutputStream != null;
 
             ObjectOutputStream objectOutputStream = null;
             try {
@@ -102,7 +108,6 @@ class MyServer{
             } catch (IOException ioException) {
                 System.out.println("Err in ObjStream");
             }
-            assert objectOutputStream != null;
             switch (files.indexOf(file)){
                 case 0 -> populate(objectOutputStream, commercialEndClients);
                 case 1 -> populate(objectOutputStream, deliveryPeople);
@@ -110,7 +115,6 @@ class MyServer{
             }
         }
     }
-
     private static void serialize(Subject subject, String subjectType) {
         FileOutputStream fileOutputStream = null;
         ObjectOutputStream objectOutputStream = null;
@@ -135,11 +139,11 @@ class MyServer{
             e.printStackTrace();
         }
     }
-
     private static class IncomingClientModel implements Runnable{
         private PrintWriter out;
         private BufferedReader in;
         private String userName;
+        private Subject subject;
 
         IncomingClientModel(Socket clientSocket){
             try{
@@ -171,16 +175,22 @@ class MyServer{
                             }
                         }
                     }
+                    System.out.println("Out of Auth");
                     break;
                 }
-
-                switch (in.readLine()){
-                    case "Code-ViewAllFoods" -> out.println(getAllFoodsJson());
-                    case "Code-ViewCart" -> out.println(getAllFoodsInCartJson());
-                    case "Code-ViewFoodsInRestaurant" -> out.println(getAllFoodInRestaurantJson());
-                    case "Code-AddFood" -> {
-                        updateNewFood(in.readLine());
-                        out.print("Updated");
+                codelistener:
+                while (true){
+                    switch (in.readLine()){
+                        case "Code-ViewAllFoods" -> out.println(getAllFoodsJson());
+                        case "Code-ViewCart" -> out.println(getAllFoodsInCartJson());
+                        case "Code-ViewFoodsInRestaurant" -> out.println(getAllFoodsInRestaurantJson());
+                        case "Code-AddFood" -> {
+                            updateNewFood(in.readLine());
+                            out.print("Updated");
+                        }
+                        case "Code-EXIT" -> {
+                            break codelistener;
+                        }
                     }
                 }
             } catch (IOException | DeserializationException e) {
@@ -206,15 +216,16 @@ class MyServer{
                 if (subject.getKey().getUserName().equals(in.readLine())){
                     if (subject.getKey().getPassword().equals(in.readLine())){
                         this.userName = subject.getKey().getUserName();
+                        this.subject = subject.getKey();                                // To reduce multiple iterations
                         subjects.put(subject.getKey(), this);                           // to update the 'null' data populated while deserializing.
-                        // TODO Cross check for the vulnerability
                         return "Code-Verified";
                     }else {
                         return "Code-InvalidPassword";
                     }
                 }
             }
-            return "Code-UserDoesn't Exist";
+            in.readLine();
+            return "Code-UserDoesn'tExist";
         }
         String authenticateNewAccount()throws IOException{
             switch (in.readLine()){
@@ -261,11 +272,11 @@ class MyServer{
         }
         private StringBuffer getAllFoodsJson() {
             StringBuffer allFoods = new StringBuffer();
-            allFoods.append("{ \"Type\" : \"AllFoods\",{ \"Foods\" : \"[\"");
+            allFoods.append("{ \"Type\" : \"AllFoods\", \"Foods\" : [");
             for (Map.Entry<Subject, IncomingClientModel> subject : restaurants.entrySet()){
                 Restaurant restaurant1 = (Restaurant) subject.getKey();
                 for (Food food : restaurant1.getFoods()){
-                    allFoods.append("\"").append(food).append("\",");
+                    allFoods.append(food).append(",");
                 }
             }
             if (allFoods.length() > 0) allFoods.deleteCharAt(allFoods.length()-1);        // to remove the redundant comma ',' in the end
@@ -275,46 +286,46 @@ class MyServer{
         }
         private StringBuffer getAllFoodsInCartJson() {
             StringBuffer allFoodsInCart = new StringBuffer();
-            allFoodsInCart.append("{ \"Type\" : \"AllCartFoods\",{ \"Foods\" : \"[\"");
-            for(Map.Entry<Subject, IncomingClientModel> subject : commercialEndClients.entrySet()){
-                if (subject.getKey().getUserName().equals(userName)){
-                    CommercialEndClient commercialEndClient = (CommercialEndClient) subject.getKey();
-                    for (Food food : commercialEndClient.getCart()){
-                        allFoodsInCart.append("\"").append(food).append("\",");
-                    }
-                    break;
-                }
+            allFoodsInCart.append("{ \"Type\" : \"AllCartFoods\",\"Foods\" : [");
+            CommercialEndClient commercialEndClient = (CommercialEndClient) subject;
+            for (Food food : commercialEndClient.getCart()){
+                allFoodsInCart.append(food).append(",");
             }
             if (allFoodsInCart.length() > 0) allFoodsInCart.deleteCharAt(allFoodsInCart.length()-1);
             allFoodsInCart.append("]}");
             allFoodsInCart.trimToSize();
             return allFoodsInCart;
         }
-        private StringBuffer getAllFoodInRestaurantJson(){
+        private StringBuffer getAllFoodsInRestaurantJson(){
             StringBuffer allFoodInRestaurantJson = new StringBuffer();
-            allFoodInRestaurantJson.append("{ \"Type\" : \"AllCartFoods\",{ \"Foods\" : \"[\"");
-            for (Map.Entry<Subject, IncomingClientModel> subject : restaurants.entrySet()){
-                if (subject.getKey().getUserName().equals(userName)){
-                    Restaurant restaurant = (Restaurant) subject.getKey();
-                    for (Food food : restaurant.getFoods()){
-                        allFoodInRestaurantJson.append("\"").append(food).append("\"");
-                    }
-                    break;
-                }
+            allFoodInRestaurantJson.append("{ \"Type\" : \"AllFoodsInRestaurant\",\"Foods\" : [");
+            Restaurant restaurant = (Restaurant) subject;
+            for (Food food : restaurant.getFoods()){
+                allFoodInRestaurantJson.append(food).append(",");
             }
             if (allFoodInRestaurantJson.length() > 0) allFoodInRestaurantJson.deleteCharAt(allFoodInRestaurantJson.length()-1);
             allFoodInRestaurantJson.append("]}");
             return allFoodInRestaurantJson;
         }
-        private void updateNewFood(String foodJson) throws DeserializationException {
-            JsonObject json = (JsonObject) Jsoner.deserialize(foodJson);
-            System.out.println(json.get("name"));
-            System.out.println(json.get("prize"));
-            System.out.println(json);
-            
+        private void updateNewFood(String foodJsonString) throws DeserializationException {
+            JsonObject foodJson = (JsonObject) Jsoner.deserialize(foodJsonString);
+            Restaurant restaurant = (Restaurant) subject;
+            restaurant.addFood(foodJson.get("foodName").toString(),Float.parseFloat(foodJson.get("foodPrize").toString()));
+            System.out.println(foodJson);
         }
     }
 }
 
-record Food(String name, float prize) implements Serializable{}
+record Food(String name, float prize) implements Serializable{
+    @Override
+    public String toString(){
+        return new StringBuffer()
+                .append("{\"foodName\":\"")
+                .append(name)
+                .append("\", \"prize\" : \"")
+                .append(prize)
+                .append("\"}")
+                .toString();
+    }
+}
 record CoOrdinates(int x, int y) implements Serializable{}

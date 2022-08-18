@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Scanner;
@@ -56,8 +57,8 @@ interface Authenticator {
                 }
                 case "Code-InvalidPassword" -> System.out.println("Invalid Password\nAttempts left "+ attempts);
                 case "Code-UserDoesn'tExist" -> {
-                    System.out.println("User Id Doesn't Exist");
-                    authenticate(subjectType, out, in);
+                    System.out.println("User Id Doesn't Exist, Retry");
+                    continue;
                 }
                 case "Code-AttemptExpired" -> {
                     System.out.println("Attempts Expired");
@@ -128,11 +129,10 @@ final class CommercialEndClient extends Subject implements Authenticator {
     private CoOrdinates coOrdinates;
     private PrintWriter out;
     private BufferedReader in;
-    private Socket socket;
-    private List<Food> cart;
+    private final List<Food> cart = new ArrayList<>();
     CommercialEndClient() throws IOException {
         try{
-            this.socket = new Socket("127.0.0.1", 77_77);
+            Socket socket = new Socket("127.0.0.1", 77_77);
             this.out = new PrintWriter(socket.getOutputStream(), true);
             this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         } catch (IOException exception){
@@ -146,6 +146,7 @@ final class CommercialEndClient extends Subject implements Authenticator {
         System.out.print("""
                 Enter 1 to View All the Foods
                 Enter 2 to View your Cart :"\s
+                Enter 3 or any number to Exit :
                 """);
         switch (scanner.nextInt()){
             case 1 -> {
@@ -159,7 +160,7 @@ final class CommercialEndClient extends Subject implements Authenticator {
             }
             default -> {
                 System.err.println("Invalid Entry");
-                mainMenu();
+
             }
         }
     }
@@ -186,7 +187,7 @@ final class CommercialEndClient extends Subject implements Authenticator {
     }
 
     public List<Food> getCart(){
-        return cart;
+        return this.cart;
     }
 }
 final class DeliveryPerson extends Subject implements Authenticator{
@@ -254,20 +255,29 @@ final class Restaurant extends Subject implements Authenticator{
     void mainMenu() throws IOException {
         System.out.print("""
                 Enter 1 to View All Foods in Your Restaurant
-                Enter 2 to Add a Food Item in Your Restaurant 
+                Enter 2 to Add a Food Item in Your Restaurant
                 Enter 3 or any number to EXIT :
                 """);
         switch (scanner.nextInt()){
-            case 1 -> out.println("Code-ViewFoodsInRestaurant");
-            case 2 -> addFood();
+            case 1 -> {
+                Main.clearScreen();
+                out.println("Code-ViewFoodsInRestaurant");
+                System.out.println(in.readLine());
+                mainMenu();
+            }
+            case 2 -> {
+                Main.clearScreen();
+                addFoodJson();
+            }
             default -> {
-                return;
+                Main.clearScreen();
+                out.println("Code-EXIT");
+                return;                // UnNecessary
             }
         }
-        System.out.println(in.readLine());
     }
 
-    private void addFood() throws IOException {
+    private void addFoodJson() throws IOException {
         out.println("Code-AddFood");
         String foodName, foodPrize;
         scanner.nextLine();
@@ -276,15 +286,17 @@ final class Restaurant extends Subject implements Authenticator{
         System.out.print("Enter Food Prize : ");
         foodPrize = scanner.nextLine();
         StringBuffer foodJson = new StringBuffer();
-        foodJson.append("{ \"name\" : \"")
+        foodJson.append("{ \"foodName\" : \"")
                 .append(foodName)
-                .append("\", \"prize\" : \"")
+                .append("\", \"foodPrize\" : \"")
                 .append(foodPrize)
                 .append("\"}");
         foodJson.trimToSize();
-        System.out.println(foodJson);
         out.println(foodJson);
         mainMenu();
+    }
+    public void addFood(String foodName, float foodPrize){
+        foods.add(new Food(foodName, foodPrize));
     }
 
     @Override
