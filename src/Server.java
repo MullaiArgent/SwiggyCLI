@@ -1,8 +1,13 @@
+import org.json.simple.DeserializationException;
+import org.json.simple.JsonObject;
+import org.json.simple.Jsoner;
+
+import javax.imageio.event.IIOWriteProgressListener;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.HashMap;
-import java.util.IllegalFormatCodePointException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -12,14 +17,14 @@ class Server {
     }
 }
 class MyServer{
-    private static final Map<Subject, IncomingClientModel> commercialEndClients = new HashMap<>();
-    private static final Map<Subject, IncomingClientModel> deliveryPeople = new HashMap<>();
-    private static final Map<Subject, IncomingClientModel> restaurants = new HashMap<>();
+    private static final Map<Subject, IncomingClientModel> commercialEndClients = new LinkedHashMap<>();
+    private static final Map<Subject, IncomingClientModel> deliveryPeople = new LinkedHashMap<>();
+    private static final Map<Subject, IncomingClientModel> restaurants = new LinkedHashMap<>();
 
     private static final List<String> files = List.of(new String[]{"CommercialEndUsers.txt", "DeliveryPeople.txt", "Restaurants.txt"});
 
     MyServer(int port) throws IOException {
-        deserialize();
+        deserializeAll();
         ServerSocket serverSocket = new ServerSocket(port);
         while (true){
             try{
@@ -28,16 +33,24 @@ class MyServer{
                 break;
             }
         }
+        serializeAll();
+
     }
-    private void populate(ObjectInputStream objectInputStream, Map<Subject, IncomingClientModel> subjects){
-        while (true){
+    private void populate(ObjectInputStream objectInputStream, FileInputStream fileInputStream,  Map<Subject, IncomingClientModel> subjects) throws IOException {
+        while (fileInputStream.available() != 0){
             try{
                 subjects.put((Subject) objectInputStream.readObject(), null);
+                fileInputStream.skip(4L);
             } catch (IOException | ClassNotFoundException e){
                 break;
             }
         }
+        for (Map.Entry<Subject, IncomingClientModel> s : subjects.entrySet()){
+            System.out.println(s.getKey().getUserName());
+        }
+
     }
+    @Deprecated(forRemoval = true)
     private static void populate(ObjectOutputStream objectOutputStream, Map<Subject, IncomingClientModel> subjects){
         for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
             try{
@@ -47,17 +60,16 @@ class MyServer{
             }
         }
     }
-    private void deserialize(){
+    private void deserializeAll() throws IOException {
         ObjectInputStream objectInputStream = null;
         FileInputStream fileInputStream = null;
         for(String file : files) {
             System.out.println("Deserializing " + file);
             try {
-                fileInputStream = new FileInputStream("Classified\\" + file);
+                fileInputStream = new FileInputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\_" + file);
             } catch (FileNotFoundException fileNotFoundException) {
                 System.out.println("FileNotFound");
             }
-
             try {
                 objectInputStream = new ObjectInputStream(fileInputStream);
             } catch (EOFException ioException) {
@@ -65,15 +77,15 @@ class MyServer{
             } catch (IOException ioException){
                 ioException.printStackTrace();
             }
-            assert objectInputStream != null;
             switch (files.indexOf(file)){
-                case 0 -> populate(objectInputStream, commercialEndClients);
-                case 1 -> populate(objectInputStream, deliveryPeople);
-                case 2 -> populate(objectInputStream, restaurants);
+                case 0 -> populate(objectInputStream, fileInputStream, commercialEndClients);
+                case 1 -> populate(objectInputStream, fileInputStream,deliveryPeople);
+                case 2 -> populate(objectInputStream, fileInputStream,restaurants);
             }
         }
     }
-    private static void serialize(){
+    @Deprecated(forRemoval = true)
+    private static void serializeAll(){
         for(String file : files) {
             System.out.println("Serializing " + file);
             FileOutputStream fileOutputStream = null;
@@ -99,10 +111,36 @@ class MyServer{
         }
     }
 
+    private static void serialize(Subject subject, String subjectType) {
+        FileOutputStream fileOutputStream = null;
+        ObjectOutputStream objectOutputStream = null;
+        try{
+            fileOutputStream = new FileOutputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\_ "+ subjectType +".txt");
+        }catch (IOException e){
+            System.out.println("Err in opening file");
+            e.printStackTrace();
+        }
+        try{
+            objectOutputStream = new ObjectOutputStream(fileOutputStream);
+        }catch (IOException e){
+            System.out.println("Err in opening obj stream");
+            e.printStackTrace();
+        }
+
+        try{
+            objectOutputStream.writeObject(subject);
+            System.out.println(subject.getUserName() + "'s data Serialized");
+        }catch (IOException e){
+            System.out.println("Err in writing the obj");
+            e.printStackTrace();
+        }
+    }
+
     private static class IncomingClientModel implements Runnable{
         private PrintWriter out;
         private BufferedReader in;
         private String userName;
+
         IncomingClientModel(Socket clientSocket){
             try{
                 this.out = new PrintWriter(clientSocket.getOutputStream(), true);
@@ -114,43 +152,62 @@ class MyServer{
 
         @Override
         public void run() {
+            String authenticationResponds;
             try {
-                out.println(switch(in.readLine()){
-                    case "Code-Login" -> authenticateLogin();
-                    case "Code-CreateAccount" -> authenticateNewAccount();
-                    default -> "InValid-Entry"; // Will never Occur
-                });
+                while (true) {
+                    switch (in.readLine()) {
+                        case "Code-Login" -> {
+                            authenticationResponds = authenticateLogin();
+                            out.println(authenticationResponds);
+                            if (!authenticationResponds.equals("Code-Verified")){
+                                continue;
+                            }
+                        }
+                        case "Code-CreateAccount" -> {
+                            authenticationResponds = authenticateNewAccount();
+                            out.println(authenticationResponds);
+                            if (!authenticationResponds.equals("Code-Verified")){
+                                continue;
+                            }
+                        }
+                    }
+                    break;
+                }
 
                 switch (in.readLine()){
                     case "Code-ViewAllFoods" -> out.println(getAllFoodsJson());
                     case "Code-ViewCart" -> out.println(getAllFoodsInCartJson());
                     case "Code-ViewFoodsInRestaurant" -> out.println(getAllFoodInRestaurantJson());
+                    case "Code-AddFood" -> {
+                        updateNewFood(in.readLine());
+                        out.print("Updated");
+                    }
                 }
-            } catch (IOException e) {
+            } catch (IOException | DeserializationException e) {
                 System.out.println("Err in incoming msgs");
             }
             try {
+                System.out.println("Elapsed");
                 this.out.close();
                 this.in.close();
-                MyServer.serialize();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
         String authenticateLogin() throws IOException{
-            Map<Subject, IncomingClientModel> subjects = switch (in.readLine()){                                         // Dynamic Polymorphism(Lat Binding)
+            Map<Subject, IncomingClientModel> subjects = switch (in.readLine()){                                         // Dynamic Polymorphism(Late Binding)
                 case "CommercialEndClient" -> commercialEndClients;
                 case "DeliveryPerson" -> deliveryPeople;
                 case "Restaurant" -> restaurants;
                 default -> null;
             };
 
-            assert subjects != null;
             for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
                 if (subject.getKey().getUserName().equals(in.readLine())){
                     if (subject.getKey().getPassword().equals(in.readLine())){
                         this.userName = subject.getKey().getUserName();
-                        // TODO update the value with .this
+                        subjects.put(subject.getKey(), this);                           // to update the 'null' data populated while deserializing.
+                        // TODO Cross check for the vulnerability
                         return "Code-Verified";
                     }else {
                         return "Code-InvalidPassword";
@@ -164,10 +221,10 @@ class MyServer{
                 case "CommercialEndClient" -> {
                     userName = in.readLine();
                     if (isUserNotExist(userName)) {
-                        commercialEndClients.put(
-                                new CommercialEndClient(userName, in.readLine(),
-                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                                , this);
+                        CommercialEndClient commercialEndClient = new CommercialEndClient(userName, in.readLine(),
+                                new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())));
+                        commercialEndClients.put(commercialEndClient, this);
+                        MyServer.serialize(commercialEndClient, "CommercialEndUsers");
                     }else{
                         // TODO already do exist
                     }
@@ -175,10 +232,10 @@ class MyServer{
                 case "DeliveryPerson" -> {
                     userName = in.readLine();
                     if (isUserNotExist(userName)) {
-                        deliveryPeople.put(
-                                new DeliveryPerson(userName, in.readLine(),
-                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                                , this);
+                        DeliveryPerson deliveryPerson = new DeliveryPerson(userName, in.readLine(),
+                                new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())));
+                        deliveryPeople.put( deliveryPerson, this);
+                        MyServer.serialize(deliveryPerson, "DeliveryPeople");
                     }else{
                         // TODO already do exist
                     }
@@ -186,16 +243,16 @@ class MyServer{
                 case "Restaurant" -> {
                     userName = in.readLine();
                     if (isUserNotExist(userName)) {
-                        restaurants.put(
-                                new Restaurant(userName, in.readLine(),
-                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                                , this);
+                        Restaurant restaurant = new Restaurant(userName, in.readLine(),
+                                new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())));
+                        restaurants.put(restaurant, this);
+                        MyServer.serialize(restaurant,"Restaurants");
                     }else{
                         // TODO already do exist
                     }
                 }
             }
-            System.out.println("New Account Created");
+            System.out.println("New Account Created : " + userName);
             return "Code-Verified";
         }
         private boolean isUserNotExist(String userName){
@@ -249,8 +306,15 @@ class MyServer{
             allFoodInRestaurantJson.append("]}");
             return allFoodInRestaurantJson;
         }
+        private void updateNewFood(String foodJson) throws DeserializationException {
+            JsonObject json = (JsonObject) Jsoner.deserialize(foodJson);
+            System.out.println(json.get("name"));
+            System.out.println(json.get("prize"));
+            System.out.println(json);
+            
+        }
     }
 }
 
-record Food(String name, float prize, String restaurantName) {}
-record CoOrdinates(int x, int y){}
+record Food(String name, float prize) implements Serializable{}
+record CoOrdinates(int x, int y) implements Serializable{}

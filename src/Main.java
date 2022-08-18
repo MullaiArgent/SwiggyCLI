@@ -1,7 +1,4 @@
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.*;
 import java.net.Socket;
 import java.util.LinkedList;
 import java.util.List;
@@ -17,7 +14,8 @@ public class Main {
         System.out.print("""
                 Enter 1 to Enter as Commercial End User
                 Enter 2 to Enter as Delivery Person
-                Enter 3 to Enter as Restaurant User :\s""");
+                Enter 3 to Enter as Restaurant User :
+                """);
         switch (new Scanner(System.in).nextInt()){
             case 1 -> {
                 clearScreen();
@@ -34,6 +32,7 @@ public class Main {
         }
     }
 }
+
 interface Authenticator {
     Scanner scanner = new Scanner(System.in);
     default String login(String subjectType, PrintWriter out, BufferedReader in) throws IOException {
@@ -41,9 +40,9 @@ interface Authenticator {
         int attempts = 2;
         String serverResponds;
         String userName;
-        out.println("Code-Login");
-        out.println(subjectType);
         do {
+            out.println("Code-Login");
+            out.println(subjectType);
             System.out.print("Enter your User-Name : ");
             userName = scanner.nextLine();
             out.println(userName);
@@ -55,10 +54,7 @@ interface Authenticator {
                     Main.clearScreen();
                     return userName;
                 }
-                case "Code-InvalidPassword" -> {
-                    System.out.println("Invalid Password\nAttempts left "+ attempts);
-                    out.println("Code-Login");
-                }
+                case "Code-InvalidPassword" -> System.out.println("Invalid Password\nAttempts left "+ attempts);
                 case "Code-UserDoesn'tExist" -> {
                     System.out.println("User Id Doesn't Exist");
                     authenticate(subjectType, out, in);
@@ -82,15 +78,15 @@ interface Authenticator {
             do{
                 userName = scanner.nextLine();
                 if(!userName.matches("[a-z0-9]+@[a-z]+\\..*")){
-                    System.out.print("Invalid E-Mail, Re-Type : ");
+                    System.err.print("Invalid E-Mail, Re-Type : ");                          // TODO if the acc mail is already exist.
                 }else {
                     break;
                 }
             }while (true);
             out.println(userName);
+            System.out.print("NOTE : Minimum eight characters, at least one uppercase letter, one lowercase letter and one number\n" +
+                    "Enter the password : ");
             do{
-                System.out.print("NOTE : Minimum eight characters, at least one uppercase letter, one lowercase letter and one number\n" +
-                        "Enter the password : ");
                 password = scanner.nextLine();
                 if (!password.matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)[a-zA-Z\\d]{8,}$")){
                     System.err.print("Invalid Password Format, Re-type : ");
@@ -108,6 +104,7 @@ interface Authenticator {
         return userName;
     }
     default String authenticate(String subjectType, PrintWriter out, BufferedReader in) throws IOException{
+        Main.clearScreen();
         System.out.print("""
                 Enter 1 to login to your Account
                 Enter 2 to Create new Account :\s
@@ -115,11 +112,12 @@ interface Authenticator {
         return switch (scanner.nextInt()){
             case 1 -> login(subjectType,out,in);
             case 2 -> createAccount(subjectType, out, in);
-            default -> null;
+            default -> authenticate(subjectType, out, in);
         };
     }
 }
-sealed abstract class Subject permits CommercialEndClient, DeliveryPerson, Restaurant {
+
+sealed abstract class Subject implements Serializable permits CommercialEndClient, DeliveryPerson, Restaurant{
     abstract String getUserName();
     abstract String getPassword();
     abstract CoOrdinates getCoOrdinates();
@@ -141,7 +139,6 @@ final class CommercialEndClient extends Subject implements Authenticator {
             System.out.println("Err in establishing Sockets");
         }
         userName = Authenticator.super.authenticate("CommercialEndClient", out, in);
-        assert userName != null;
         mainMenu();
     }
 
@@ -246,24 +243,50 @@ final class Restaurant extends Subject implements Authenticator{
             System.out.println("Err in establishing Sockets");
         }
         name = Authenticator.super.authenticate("Restaurant", out, in);
-        assert name != null;
         mainMenu();
-
+        System.out.println("Thank You");
     }
     public Restaurant(String name, String password, CoOrdinates coOrdinates) {
         this.name = name;
         this.password = password;
         this.coOrdinates = coOrdinates;
     }
-    void mainMenu(){
+    void mainMenu() throws IOException {
         System.out.print("""
                 Enter 1 to View All Foods in Your Restaurant
-                Enter 2 to Add a Food Item in Your Restaurant :\s
+                Enter 2 to Add a Food Item in Your Restaurant 
+                Enter 3 or any number to EXIT :
                 """);
         switch (scanner.nextInt()){
             case 1 -> out.println("Code-ViewFoodsInRestaurant");
+            case 2 -> addFood();
+            default -> {
+                return;
+            }
         }
+        System.out.println(in.readLine());
     }
+
+    private void addFood() throws IOException {
+        out.println("Code-AddFood");
+        String foodName, foodPrize;
+        scanner.nextLine();
+        System.out.print("Enter Food Name : ");
+        foodName = scanner.nextLine();
+        System.out.print("Enter Food Prize : ");
+        foodPrize = scanner.nextLine();
+        StringBuffer foodJson = new StringBuffer();
+        foodJson.append("{ \"name\" : \"")
+                .append(foodName)
+                .append("\", \"prize\" : \"")
+                .append(foodPrize)
+                .append("\"}");
+        foodJson.trimToSize();
+        System.out.println(foodJson);
+        out.println(foodJson);
+        mainMenu();
+    }
+
     @Override
     public String getUserName() {
         return name;
