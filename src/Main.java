@@ -120,13 +120,13 @@ interface Authenticator {
     }
 }
 sealed abstract class Subject permits CommercialEndClient, DeliveryPerson, Restaurant {
-    abstract String getName();
+    abstract String getUserName();
     abstract String getPassword();
     abstract CoOrdinates getCoOrdinates();
 }
 
 final class CommercialEndClient extends Subject implements Authenticator {
-    private String name, password = null;
+    private String userName, password = null;
     private CoOrdinates coOrdinates;
     private PrintWriter out;
     private BufferedReader in;
@@ -140,8 +140,8 @@ final class CommercialEndClient extends Subject implements Authenticator {
         } catch (IOException exception){
             System.out.println("Err in establishing Sockets");
         }
-        name = Authenticator.super.authenticate("CommercialEndClient", out, in);
-        assert name != null;
+        userName = Authenticator.super.authenticate("CommercialEndClient", out, in);
+        assert userName != null;
         mainMenu();
     }
 
@@ -167,15 +167,15 @@ final class CommercialEndClient extends Subject implements Authenticator {
         }
     }
 
-    public CommercialEndClient(String name, String password, CoOrdinates coOrdinates) {
-        this.name = name;
+    public CommercialEndClient(String userName, String password, CoOrdinates coOrdinates) {
+        this.userName = userName;
         this.password = password;
         this.coOrdinates = coOrdinates;
     }
 
     @Override
-    public String getName() {
-        return name;
+    public String getUserName() {
+        return userName;
     }
 
     @Override
@@ -216,7 +216,7 @@ final class DeliveryPerson extends Subject implements Authenticator{
     }
 
     @Override
-    public String getName() {
+    public String getUserName() {
         return name;
     }
 
@@ -265,7 +265,7 @@ final class Restaurant extends Subject implements Authenticator{
         }
     }
     @Override
-    public String getName() {
+    public String getUserName() {
         return name;
     }
 

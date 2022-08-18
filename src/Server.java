@@ -1,8 +1,10 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.LinkedList;
+import java.util.HashMap;
+import java.util.IllegalFormatCodePointException;
 import java.util.List;
+import java.util.Map;
 
 class Server {
     public static void main(String[] args) throws IOException {
@@ -10,9 +12,10 @@ class Server {
     }
 }
 class MyServer{
-    private static final List<Subject> commercialEndClients = new LinkedList<>();
-    private static final List<Subject> deliveryPeople = new LinkedList<>();
-    private static final List<Subject> restaurants = new LinkedList<>();
+    private static final Map<Subject, IncomingClientModel> commercialEndClients = new HashMap<>();
+    private static final Map<Subject, IncomingClientModel> deliveryPeople = new HashMap<>();
+    private static final Map<Subject, IncomingClientModel> restaurants = new HashMap<>();
+
     private static final List<String> files = List.of(new String[]{"CommercialEndUsers.txt", "DeliveryPeople.txt", "Restaurants.txt"});
 
     MyServer(int port) throws IOException {
@@ -20,25 +23,25 @@ class MyServer{
         ServerSocket serverSocket = new ServerSocket(port);
         while (true){
             try{
-                new Incoming(serverSocket.accept()).run();
+                new IncomingClientModel(serverSocket.accept()).run();
             }catch (InterruptedIOException e){
                 break;
             }
         }
     }
-    private void populate(ObjectInputStream objectInputStream, List<Subject> subjects){
+    private void populate(ObjectInputStream objectInputStream, Map<Subject, IncomingClientModel> subjects){
         while (true){
             try{
-                subjects.add((Subject) objectInputStream.readObject());
+                subjects.put((Subject) objectInputStream.readObject(), null);
             } catch (IOException | ClassNotFoundException e){
                 break;
             }
         }
     }
-    private static void populate(ObjectOutputStream objectOutputStream, List<Subject> subjects){
-        for (Subject subject : subjects){
+    private static void populate(ObjectOutputStream objectOutputStream, Map<Subject, IncomingClientModel> subjects){
+        for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
             try{
-                objectOutputStream.writeObject(subject);
+                objectOutputStream.writeObject(subject.getKey());
             }catch (IOException ioException){
                 System.out.println("Err in deserializing");
             }
@@ -96,11 +99,11 @@ class MyServer{
         }
     }
 
-    private static class Incoming implements Runnable{
+    private static class IncomingClientModel implements Runnable{
         private PrintWriter out;
         private BufferedReader in;
         private String userName;
-        Incoming(Socket clientSocket){
+        IncomingClientModel(Socket clientSocket){
             try{
                 this.out = new PrintWriter(clientSocket.getOutputStream(), true);
                 this.in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
@@ -135,7 +138,7 @@ class MyServer{
             }
         }
         String authenticateLogin() throws IOException{
-            List<Subject> subjects = switch (in.readLine()){
+            Map<Subject, IncomingClientModel> subjects = switch (in.readLine()){                                         // Dynamic Polymorphism(Lat Binding)
                 case "CommercialEndClient" -> commercialEndClients;
                 case "DeliveryPerson" -> deliveryPeople;
                 case "Restaurant" -> restaurants;
@@ -143,10 +146,11 @@ class MyServer{
             };
 
             assert subjects != null;
-            for (Subject subject : subjects){
-                if (subject.getName().equals(in.readLine())){
-                    if (subject.getPassword().equals(in.readLine())){
-                        this.userName = subject.getName();
+            for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
+                if (subject.getKey().getUserName().equals(in.readLine())){
+                    if (subject.getKey().getPassword().equals(in.readLine())){
+                        this.userName = subject.getKey().getUserName();
+                        // TODO update the value with .this
                         return "Code-Verified";
                     }else {
                         return "Code-InvalidPassword";
@@ -158,25 +162,37 @@ class MyServer{
         String authenticateNewAccount()throws IOException{
             switch (in.readLine()){
                 case "CommercialEndClient" -> {
-                    commercialEndClients.add(
-                            new CommercialEndClient(in.readLine(), in.readLine(),
-                                    new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                    );
-                    this.userName = commercialEndClients.get(commercialEndClients.size() - 1).getName();
+                    userName = in.readLine();
+                    if (isUserNotExist(userName)) {
+                        commercialEndClients.put(
+                                new CommercialEndClient(userName, in.readLine(),
+                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
+                                , this);
+                    }else{
+                        // TODO already do exist
+                    }
                 }
                 case "DeliveryPerson" -> {
-                    deliveryPeople.add(
-                            new DeliveryPerson(in.readLine(), in.readLine(),
-                                    new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                    );
-                    this.userName = deliveryPeople.get(deliveryPeople.size()-1).getName();
+                    userName = in.readLine();
+                    if (isUserNotExist(userName)) {
+                        deliveryPeople.put(
+                                new DeliveryPerson(userName, in.readLine(),
+                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
+                                , this);
+                    }else{
+                        // TODO already do exist
+                    }
                 }
                 case "Restaurant" -> {
-                    restaurants.add(
-                            new Restaurant(in.readLine(), in.readLine(),
-                                    new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
-                    );
-                    this.userName = restaurants.get(restaurants.size()-1).getName();
+                    userName = in.readLine();
+                    if (isUserNotExist(userName)) {
+                        restaurants.put(
+                                new Restaurant(userName, in.readLine(),
+                                        new CoOrdinates(Integer.parseInt(in.readLine()), Integer.parseInt(in.readLine())))
+                                , this);
+                    }else{
+                        // TODO already do exist
+                    }
                 }
             }
             System.out.println("New Account Created");
@@ -189,8 +205,8 @@ class MyServer{
         private StringBuffer getAllFoodsJson() {
             StringBuffer allFoods = new StringBuffer();
             allFoods.append("{ \"Type\" : \"AllFoods\",{ \"Foods\" : \"[\"");
-            for (Subject restaurant :  restaurants){
-                Restaurant restaurant1 = (Restaurant) restaurant;
+            for (Map.Entry<Subject, IncomingClientModel> subject : restaurants.entrySet()){
+                Restaurant restaurant1 = (Restaurant) subject.getKey();
                 for (Food food : restaurant1.getFoods()){
                     allFoods.append("\"").append(food).append("\",");
                 }
@@ -203,9 +219,9 @@ class MyServer{
         private StringBuffer getAllFoodsInCartJson() {
             StringBuffer allFoodsInCart = new StringBuffer();
             allFoodsInCart.append("{ \"Type\" : \"AllCartFoods\",{ \"Foods\" : \"[\"");
-            for(Subject subject : commercialEndClients){
-                if (subject.getName().equals(userName)){
-                    CommercialEndClient commercialEndClient = (CommercialEndClient) subject;
+            for(Map.Entry<Subject, IncomingClientModel> subject : commercialEndClients.entrySet()){
+                if (subject.getKey().getUserName().equals(userName)){
+                    CommercialEndClient commercialEndClient = (CommercialEndClient) subject.getKey();
                     for (Food food : commercialEndClient.getCart()){
                         allFoodsInCart.append("\"").append(food).append("\",");
                     }
@@ -220,9 +236,9 @@ class MyServer{
         private StringBuffer getAllFoodInRestaurantJson(){
             StringBuffer allFoodInRestaurantJson = new StringBuffer();
             allFoodInRestaurantJson.append("{ \"Type\" : \"AllCartFoods\",{ \"Foods\" : \"[\"");
-            for (Subject subject : restaurants){
-                if (subject.getName().equals(userName)){
-                    Restaurant restaurant = (Restaurant) subject;
+            for (Map.Entry<Subject, IncomingClientModel> subject : restaurants.entrySet()){
+                if (subject.getKey().getUserName().equals(userName)){
+                    Restaurant restaurant = (Restaurant) subject.getKey();
                     for (Food food : restaurant.getFoods()){
                         allFoodInRestaurantJson.append("\"").append(food).append("\"");
                     }
