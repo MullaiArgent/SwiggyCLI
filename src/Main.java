@@ -1,3 +1,7 @@
+import org.json.simple.DeserializationException;
+import org.json.simple.JsonArray;
+import org.json.simple.JsonObject;
+import org.json.simple.Jsoner;
 import java.io.*;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -5,13 +9,14 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Scanner;
 
+
 public class Main {
     static {
         System.loadLibrary("clearScreen");
     }
     public native static void clearScreen();
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, DeserializationException, InterruptedException {
         System.out.print("""
                 Enter 1 to Enter as Commercial End User
                 Enter 2 to Enter as Delivery Person
@@ -44,7 +49,7 @@ interface Authenticator {
         do {
             out.println("Code-Login");
             out.println(subjectType);
-            System.out.print("Enter your User-Name : ");
+            System.out.print("Enter your E-Name : ");
             userName = scanner.nextLine();
             out.println(userName);
             System.out.print("Enter the Password : ");
@@ -75,7 +80,7 @@ interface Authenticator {
             scanner.nextLine();
             out.println("Code-CreateAccount");
             out.println(subjectType);
-            System.out.print("Enter the UserName : ");
+            System.out.print("Enter the E-Name : ");
             do{
                 userName = scanner.nextLine();
                 if(!userName.matches("[a-z0-9]+@[a-z]+\\..*")){
@@ -130,7 +135,7 @@ final class CommercialEndClient extends Subject implements Authenticator {
     private PrintWriter out;
     private BufferedReader in;
     private final List<Food> cart = new ArrayList<>();
-    CommercialEndClient() throws IOException {
+    CommercialEndClient() throws IOException, DeserializationException, InterruptedException {
         try{
             Socket socket = new Socket("127.0.0.1", 77_77);
             this.out = new PrintWriter(socket.getOutputStream(), true);
@@ -142,33 +147,120 @@ final class CommercialEndClient extends Subject implements Authenticator {
         mainMenu();
     }
 
-    private void mainMenu() throws IOException {
-        System.out.print("""
+    private void mainMenu() throws IOException, DeserializationException, InterruptedException {
+        JsonObject temp;
+        mainMenu:
+        while (true) {
+            System.out.print("""
                 Enter 1 to View All the Foods
-                Enter 2 to View your Cart :"\s
+                Enter 2 to View your Cart
                 Enter 3 or any number to Exit :
                 """);
-        switch (scanner.nextInt()){
-            case 1 -> {
-                out.println("Code-ViewAllFoods");
-                System.out.println(in.readLine()); // parse json
-            }
-            case 2 -> {
-                out.println("Code-ViewCart");
-                System.out.println(in.readLine()); // JSON obj of the result
-                // TODO Check out
-            }
-            default -> {
-                System.err.println("Invalid Entry");
-
+            int option = scanner.nextInt();
+            scanner.nextLine();
+            switch (option) {
+                case 1 -> {
+                    out.println("Code-ViewAllFoods");
+                    JsonObject jsonObject = (JsonObject) Jsoner.deserialize(in.readLine()); // parse json
+                    JsonArray jsonFoodArray = (JsonArray) jsonObject.get("Foods");
+                    for (int i = 0 ;jsonFoodArray.size() > i; i++){
+                        temp = (JsonObject) jsonFoodArray.get(i);
+                        System.out.println(
+                                "ID"+i+"\n" +
+                                ""+temp.get("foodName") +"\n" +
+                                "Prize : " + temp.get("foodPrize")+"\n"+
+                                "restaurantName : " + temp.get("restaurantName") + "\n");
+                    }
+                    System.out.print("""
+                            Enter Food ID to add to Cart
+                            Enter CART to view your CART
+                            Enter EXIT to get back to Main Menu :
+                            """);
+                    String option1 = scanner.nextLine();
+                    if (option1.equals("CART")){
+                        viewCart();
+                    }else if(option1.equals("EXIT")){
+                        mainMenu();
+                        break mainMenu;
+                    }else{
+                        if (option1.matches("(ID)\\d+")) {
+                            out.println("Code-AddFoodToCart");
+                            JsonObject jsonFood = (JsonObject) jsonFoodArray.get(Integer.parseInt(option1.substring(2)));
+                            out.println(jsonFood.toJson());
+                        }else {
+                            System.err.println("INVALID Entry");
+                        }
+                    }
+                }
+                case 2 -> viewCart();
+                default -> {
+                    break mainMenu;
+                }
             }
         }
     }
-
+    private void viewCart() throws IOException, DeserializationException {
+        out.println("Code-ViewCart");
+        JsonObject jsonCart = (JsonObject) Jsoner.deserialize(in.readLine());
+        JsonArray jsonCartFoods = (JsonArray) jsonCart.get("Foods");
+        JsonObject food;
+        for (int i = 0 ;jsonCartFoods.size() > i; i++){
+            food = (JsonObject) jsonCartFoods.get(i);
+            System.out.println(
+                    "ID"+i+"\n" +
+                    food.get("foodName") + "\n" +
+                    "Prize : " + food.get("foodPrize") + "\n"+
+                    "RestaurantName : " + food.get("restaurantName") + "\n");
+        }
+        System.out.print("""
+                    Enter ID number to REMOVE from the CART
+                    Enter BOOK to Place the Order
+                    Enter EXIT  to get back to MainMenu :
+                    """);
+        String option =  scanner.nextLine();
+        if (option.equals("BOOK")) {
+            out.println("Code-CheckOutTheCart");
+            JsonObject jsonResponds = (JsonObject) Jsoner.deserialize(in.readLine());
+            System.out.println(jsonResponds.get("Code-Type"));
+            if (jsonResponds.get("Code-Type").equals("InValid")) {
+                JsonArray jsonFoodArray = (JsonArray) jsonResponds.get("Foods");
+                for (int i = 0; i < jsonFoodArray.size(); i++) {
+                    JsonObject jsonFood = (JsonObject) jsonFoodArray.get(i);
+                    System.out.println(
+                        jsonFood.get("foodName") + "\n" +
+                        "Prize : " + jsonFood.get("foodPrize") + "\n" +
+                        "RestaurantName : " + jsonFood.get("restaurantName") + "\n");
+                }
+                System.out.println("The Above Food cannot be Delivered at this Moment, Try after removing from the Cart");
+            }else if(jsonResponds.get("Code-Type").equals("Valid")){
+                // Order placed
+            }
+        }else if(option.matches("(ID)\\d+")){
+            out.println("Code-RemoveFoodFromCart");
+            JsonObject jsonFood = (JsonObject) jsonCartFoods.get(Integer.parseInt(option.substring(2)));
+            out.println(jsonFood.toJson());
+        }else if(option.equals("EXIT")){
+            return;                            // unnecessary
+        }else{
+            System.err.println("Invalid Entry");
+            viewCart();
+        }
+    }
     public CommercialEndClient(String userName, String password, CoOrdinates coOrdinates) {
         this.userName = userName;
         this.password = password;
         this.coOrdinates = coOrdinates;
+    }
+
+    public void addToCart(JsonObject foodJson){
+        cart.add(new Food((String) foodJson.get("foodName"),
+                Float.parseFloat((String) foodJson.get("foodPrize")),
+                (String)foodJson.get("restaurantName")));
+    }
+    public void removeFromCart(JsonObject foodJson){
+        cart.remove(new Food((String) foodJson.get("foodName"),
+                Float.parseFloat((String)foodJson.get("foodPrize")),
+                (String) foodJson.get("restaurantName")));
     }
 
     @Override
@@ -187,7 +279,7 @@ final class CommercialEndClient extends Subject implements Authenticator {
     }
 
     public List<Food> getCart(){
-        return this.cart;
+        return cart;
     }
 }
 final class DeliveryPerson extends Subject implements Authenticator{
@@ -229,7 +321,8 @@ final class DeliveryPerson extends Subject implements Authenticator{
     }
 }
 final class Restaurant extends Subject implements Authenticator{
-    private String name, password;
+    private final String userName;
+    private String password;
     private PrintWriter out;
     private BufferedReader in;
     private Socket socket;
@@ -243,12 +336,12 @@ final class Restaurant extends Subject implements Authenticator{
         } catch (IOException exception){
             System.out.println("Err in establishing Sockets");
         }
-        name = Authenticator.super.authenticate("Restaurant", out, in);
+        userName = Authenticator.super.authenticate("Restaurant", out, in);
         mainMenu();
         System.out.println("Thank You");
     }
     public Restaurant(String name, String password, CoOrdinates coOrdinates) {
-        this.name = name;
+        this.userName = name;
         this.password = password;
         this.coOrdinates = coOrdinates;
     }
@@ -278,7 +371,7 @@ final class Restaurant extends Subject implements Authenticator{
     }
 
     private void addFoodJson() throws IOException {
-        out.println("Code-AddFood");
+        out.println("Code-AddAFoodInRestaurant");
         String foodName, foodPrize;
         scanner.nextLine();
         System.out.print("Enter Food Name : ");
@@ -295,13 +388,14 @@ final class Restaurant extends Subject implements Authenticator{
         out.println(foodJson);
         mainMenu();
     }
+
     public void addFood(String foodName, float foodPrize){
-        foods.add(new Food(foodName, foodPrize));
+        foods.add(new Food(foodName, foodPrize, userName));
     }
 
     @Override
     public String getUserName() {
-        return name;
+        return userName;
     }
 
     @Override
@@ -316,5 +410,10 @@ final class Restaurant extends Subject implements Authenticator{
 
     public List<Food> getFoods() {
         return foods;
+    }
+
+    @Override
+    public String toString() {
+        return this.userName;
     }
 }
