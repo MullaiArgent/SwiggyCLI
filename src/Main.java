@@ -283,31 +283,40 @@ final class CommercialEndClient extends Subject implements Authenticator {
     }
 }
 final class DeliveryPerson extends Subject implements Authenticator{
-    private String name, password;
+    private final String userName;
+    private String password;
     private PrintWriter out;
     private BufferedReader in;
-    private Socket socket;
     private CoOrdinates coOrdinates;
+    private boolean isAvailable = true;
     DeliveryPerson() throws IOException{
         try{
-            this.socket = new Socket("127.0.0.1", 77_77);
+            Socket socket = new Socket("127.0.0.1", 77_77);
             this.out = new PrintWriter(socket.getOutputStream(), true);
             this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         } catch (IOException exception){
             System.out.println("Err in establishing Sockets");
         }
-        name = Authenticator.super.authenticate("DeliveryPerson", out, in);
+        userName = Authenticator.super.authenticate("DeliveryPerson", out, in);
+        mainMenu();
     }
 
-    public DeliveryPerson(String name, String password, CoOrdinates coOrdinates) {
-        this.name = name;
+    public DeliveryPerson(String userName, String password, CoOrdinates coOrdinates) {
+        this.userName = userName;
         this.password = password;
         this.coOrdinates = coOrdinates;
+    }
+    private void mainMenu() throws IOException {
+        while (true){
+            if (in.readLine().equals("Code-TakeDelivery")){
+                System.out.println("testing`");
+            }
+        }
     }
 
     @Override
     public String getUserName() {
-        return name;
+        return userName;
     }
 
     @Override
@@ -318,6 +327,14 @@ final class DeliveryPerson extends Subject implements Authenticator{
     @Override
     public CoOrdinates getCoOrdinates() {
         return coOrdinates;
+    }
+
+    public boolean isAvailable() {
+        return isAvailable;
+    }
+
+    public void setAvailable(boolean available) {
+        isAvailable = available;
     }
 }
 final class Restaurant extends Subject implements Authenticator{
@@ -340,6 +357,11 @@ final class Restaurant extends Subject implements Authenticator{
         mainMenu();
         System.out.println("Thank You");
     }
+
+    public Restaurant(String userName) {
+        this.userName = userName;
+    }
+
     public Restaurant(String name, String password, CoOrdinates coOrdinates) {
         this.userName = name;
         this.password = password;
@@ -415,5 +437,11 @@ final class Restaurant extends Subject implements Authenticator{
     @Override
     public String toString() {
         return this.userName;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        Restaurant restaurant = (Restaurant) obj;
+        return this.userName.equals(restaurant.userName);
     }
 }

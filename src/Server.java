@@ -1,13 +1,9 @@
-import org.jetbrains.annotations.Contract;
 import org.json.simple.*;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 class Server {
@@ -201,7 +197,7 @@ class MyServer{
                         case "Code-AddAFoodInRestaurant" -> updateNewFood(in.readLine());
                         case "Code-AddFoodToCart" -> commercialEndClient.addToCart((JsonObject) Jsoner.deserialize(in.readLine()));
                         case "Code-RemoveFoodFromCart" -> commercialEndClient.removeFromCart((JsonObject) Jsoner.deserialize(in.readLine()));
-                        case "Code-CheckOutTheCart" -> placeOrder();
+                        case "Code-CheckOutTheCart" -> validateOrder();
                         case "Code-ServerPing" -> System.err.println("Client End ping");
                         case "Code-EXIT" -> {
                             break codeListener;
@@ -227,10 +223,13 @@ class MyServer{
                 case "Restaurant" -> restaurants;
                 default -> null;
             };
-
+            String userName = in.readLine();
+            String password = in.readLine();
             for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
-                if (subject.getKey().getUserName().equals(in.readLine())){
-                    if (subject.getKey().getPassword().equals(in.readLine())){
+                System.out.println("testing  : " + subject.getKey().getUserName());
+                System.out.println("testing  : " + subject.getKey().getPassword());
+                if (subject.getKey().getUserName().equals(userName)){
+                    if (subject.getKey().getPassword().equals(password)){
                         this.userName = subject.getKey().getUserName();
                         this.subject = subject.getKey();                                // To reduce multiple iterations
                         subjects.put(subject.getKey(), this);                           // to update the 'null' data populated while deserializing.
@@ -309,6 +308,7 @@ class MyServer{
             JsonArray jsonFoods = new JsonArray();
             jsonFoods.addAll(commercialEndClient.getCart());
             allFoodsInCart.put("Foods", jsonFoods);
+            System.out.println(allFoodsInCart + "testing");
             return allFoodsInCart.toJson();
         }
         private StringBuffer getAllFoodsInRestaurantJson(){
@@ -321,7 +321,7 @@ class MyServer{
             allFoodsInRestaurantJson.append("]}");
             return allFoodsInRestaurantJson;
         }
-        private void placeOrder(){
+        private void validateOrder() throws IOException {
             JsonObject jsonResponds = new JsonObject();
             JsonArray jsonArray = new JsonArray();
             for (Food food : commercialEndClient.getCart()) {
@@ -342,18 +342,77 @@ class MyServer{
             }else{
                 jsonResponds.putIfAbsent("Code-Type", "Valid");
                 out.println(jsonResponds.toJson());
-                // TODO find the delivery boi
+                placeOrder();
             }
+        }
+        private void placeOrder() throws IOException {
+            List<Map.Entry<Subject, IncomingClientModel>> availableDeliveryPeople = deliveryPeople
+                    .entrySet()
+                    .stream()
+                    .filter(e -> {
+                DeliveryPerson deliveryPerson = (DeliveryPerson) e.getKey();
+                return e.getValue() != null && deliveryPerson.isAvailable();
+            }).toList();
+
+            double shortestDistance = 0, currentDistance = 0;
+            DeliveryPerson nearestDeliveryPerson = null;
+            Food firstPickUp = null;
+            for (Map.Entry<Subject, IncomingClientModel> entry : availableDeliveryPeople){
+                DeliveryPerson deliveryPerson1 = (DeliveryPerson) entry.getKey();
+                for (Food food : commercialEndClient.getCart()){
+                    for (Map.Entry<Subject, IncomingClientModel> res : restaurants.entrySet()){
+                        if (food.restaurantName().equals(res.getKey().getUserName())){
+                            Restaurant restaurant1 = (Restaurant) res.getKey();
+                            currentDistance = restaurant1.getCoOrdinates().distance(deliveryPerson1.getCoOrdinates());
+                            if (currentDistance < shortestDistance){
+                                shortestDistance = currentDistance;
+                                nearestDeliveryPerson = deliveryPerson1;
+                                firstPickUp = food;
+                            }
+                        }
+                    }
+                }
+            }
+            commercialEndClient.getCart().remove(firstPickUp);
+            commercialEndClient.getCart().add(0, firstPickUp);
+            Food temp;
+            CoOrdinates currentCoOrdinate;
+            for (int i = 0; i < commercialEndClient.getCart().size() - 1; i++) {
+                currentCoOrdinate = getCoOrdinate(commercialEndClient.getCart().get(i));
+                for (int j = i + 1; j < commercialEndClient.getCart().size(); j++) {
+                    if (currentCoOrdinate.distance(getCoOrdinate(commercialEndClient.getCart().get(i+1))) > currentCoOrdinate.distance(getCoOrdinate(commercialEndClient.getCart().get(j)))){
+                        temp = commercialEndClient.getCart().get(j);
+                        commercialEndClient.getCart().set(j, commercialEndClient.getCart().get(i+1));
+                        commercialEndClient.getCart().set(i+1, temp);
+                    }
+                }
+            }
+            System.out.println(commercialEndClient.getCart());
+            deliveryPeople.get(nearestDeliveryPerson).out.println("Code-TakeDelivery");
+            // TODO calc time
+            in.readLine();
         }
         private void updateNewFood(String foodJsonString) throws DeserializationException {
             JsonObject foodJson = (JsonObject) Jsoner.deserialize(foodJsonString);
             restaurant.addFood(foodJson.get("foodName").toString(),Float.parseFloat(foodJson.get("foodPrize").toString()));
             System.out.println(foodJson);
         }
+
+        private CoOrdinates getCoOrdinate(Food food){
+            // TODO Food is null
+            for (Map.Entry<Subject, IncomingClientModel> res : restaurants.entrySet()) {
+                if (food.restaurantName().equals(res.getKey().getUserName())) {
+                    return res.getKey().getCoOrdinates();
+                }
+            }
+            System.out.println("NUll Data");
+            return null;
+        }
     }
 }
 
 record Food(String foodName, float foodPrize, String restaurantName) implements Serializable, Jsonable {
+
     @Override
     public String toString(){
         JsonObject jsonFood = new JsonObject();
@@ -380,4 +439,8 @@ record Food(String foodName, float foodPrize, String restaurantName) implements 
                 this.restaurantName.equals(food.restaurantName);
     }
 }
-record CoOrdinates(int x, int y) implements Serializable{}
+record CoOrdinates(int x, int y) implements Serializable{
+    double distance(CoOrdinates coOrdinates){
+        return Math.sqrt((Math.pow((coOrdinates.x - this.x),2) + Math.pow((coOrdinates.y - this.y),2)));
+    }
+}
