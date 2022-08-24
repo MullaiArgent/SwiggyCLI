@@ -1,5 +1,4 @@
 import org.json.simple.*;
-
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -33,7 +32,7 @@ class MyServer{
 
         while (flag.get()){
             try{
-                System.out.println("flag state inside " + flag.get());
+                System.out.println("Flag State " + flag.get() + " Awaiting Incoming clients");
                 new Thread(new IncomingClientModel(serverSocket.accept())).start();
             }catch (InterruptedIOException e){
                 break;
@@ -44,7 +43,7 @@ class MyServer{
         while (fileInputStream.available() != 0){
             try{
                 subjects.put((Subject) objectInputStream.readObject(), null);
-                //fileInputStream.skip(4L);
+                //fileInputStream.skip(4L);    While reading the objects which are saved in append mode
             } catch (IOException | ClassNotFoundException e){
                 break;
             }
@@ -117,7 +116,7 @@ class MyServer{
         FileOutputStream fileOutputStream = null;
         ObjectOutputStream objectOutputStream = null;
         try{
-            fileOutputStream = new FileOutputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\_ "+ subjectType +".txt");
+            fileOutputStream = new FileOutputStream("C:\\Users\\mulla\\OneDrive\\Documents\\GitHub\\SwiggyCLI\\src\\Classified\\_"+ subjectType +".txt");
         }catch (IOException e){
             System.out.println("Err in opening file");
             e.printStackTrace();
@@ -151,7 +150,7 @@ class MyServer{
                 this.out = new PrintWriter(clientSocket.getOutputStream(), true);
                 this.in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
             } catch (IOException exception){
-                System.out.println("Err in establishing Sockets");
+                System.out.println("Err in establishing Socket Connection");
             }
         }
 
@@ -162,6 +161,7 @@ class MyServer{
                 while (true) {
                     switch (in.readLine()) {
                         case "Code-Login" -> {
+                            System.out.println("log : attempt ot login");
                             authenticationResponds = authenticateLogin();
                             out.println(authenticationResponds);
                             if (!authenticationResponds.equals("Code-Verified")){
@@ -169,9 +169,11 @@ class MyServer{
                             }
                         }
                         case "Code-CreateAccount" -> {
+                            System.out.println("log : attempt ot create a new account");
                             authenticationResponds = authenticateNewAccount();
                             out.println(authenticationResponds);
                             if (!authenticationResponds.equals("Code-Verified")){
+                                System.out.println("verified");
                                 continue;
                             }
                         }
@@ -188,7 +190,7 @@ class MyServer{
                 }
                 codeListener:
                 while (true){
-                    System.out.println("awaiting code from the client");
+                    System.out.println("Awaiting code from the client");
                     String a = in.readLine();
                     switch (a){
                         case "Code-ViewAllFoods" -> out.println(getAllFoodsJson());
@@ -199,7 +201,10 @@ class MyServer{
                         case "Code-RemoveFoodFromCart" -> commercialEndClient.removeFromCart((JsonObject) Jsoner.deserialize(in.readLine()));
                         case "Code-CheckOutTheCart" -> validateOrder();
                         case "Code-ServerPing" -> System.err.println("Client End ping");
+                        case "Code-UnAvailable" -> deliveryPerson.setAvailable(false);
+                        case "Code-Available" -> deliveryPerson.setAvailable(true);
                         case "Code-EXIT" -> {
+                            System.out.println("log : user has left the App, terminating " + Thread.currentThread().getName());
                             break codeListener;
                         }
                         default -> System.out.println(a); // for testing purpose
@@ -224,10 +229,13 @@ class MyServer{
                 default -> null;
             };
             String userName = in.readLine();
+            while (isUserNotExist(userName, subjects)){
+                out.println("Code-UserDoesn'tExist");
+                userName = in.readLine();
+            }
+            out.println("Code-Exists");
             String password = in.readLine();
             for (Map.Entry<Subject, IncomingClientModel> subject : subjects.entrySet()){
-                System.out.println("testing  : " + subject.getKey().getUserName());
-                System.out.println("testing  : " + subject.getKey().getPassword());
                 if (subject.getKey().getUserName().equals(userName)){
                     if (subject.getKey().getPassword().equals(password)){
                         this.userName = subject.getKey().getUserName();
@@ -239,56 +247,60 @@ class MyServer{
                     }
                 }
             }
-            in.readLine();
-            return "Code-UserDoesn'tExist";
+            return null;
         }
         private String authenticateNewAccount()throws IOException{
             switch (in.readLine()){
                 case "CommercialEndClient" -> {
                     userName = in.readLine();
-                    if (isUserNotExist(userName)) {
-                        CommercialEndClient commercialEndClient = new CommercialEndClient(userName, in.readLine(),
-                                new CoOrdinates(Integer.parseInt(in.readLine()),
-                                                Integer.parseInt(in.readLine())));
-                        commercialEndClients.put(commercialEndClient, this);
-                        subject = commercialEndClient;
+                    while (!isUserNotExist(userName, restaurants)) {
+                        out.println("Code-UserExists");
+                        userName = in.readLine();
+                    }
+                    out.println("Code-UserNotExists");
+                    CommercialEndClient commercialEndClient = new CommercialEndClient(userName, in.readLine(),
+                            new CoOrdinates(Integer.parseInt(in.readLine()),
+                                            Integer.parseInt(in.readLine())));
+                    commercialEndClients.put(commercialEndClient, this);
+                    subject = commercialEndClient;
                         //MyServer.serialize(commercialEndClient, "CommercialEndUsers");
-                    }else{
-                        // TODO already do exist
-                    }
-                }
-                case "DeliveryPerson" -> {
+                }case "DeliveryPerson" -> {
                     userName = in.readLine();
-                    if (isUserNotExist(userName)) {
-                        DeliveryPerson deliveryPerson = new DeliveryPerson(userName, in.readLine(),
-                                new CoOrdinates(Integer.parseInt(in.readLine()),
-                                                Integer.parseInt(in.readLine())));
-                        deliveryPeople.put(deliveryPerson, this);
-                        subject = deliveryPerson;
-                        //MyServer.serialize(deliveryPerson, "DeliveryPeople");
-                    }else{
-                        // TODO already do exist
+                    while (!isUserNotExist(userName, restaurants)) {
+                        out.println("Code-UserExists");
+                        userName = in.readLine();
                     }
-                }
-                case "Restaurant" -> {
+                    out.println("Code-UserNotExists");
+                    DeliveryPerson deliveryPerson = new DeliveryPerson(userName, in.readLine(),
+                            new CoOrdinates(Integer.parseInt(in.readLine()),
+                                            Integer.parseInt(in.readLine())));
+                    deliveryPeople.put(deliveryPerson, this);
+                    subject = deliveryPerson;
+                    //MyServer.serialize(deliveryPerson, "DeliveryPeople");
+                }case "Restaurant" -> {
+                    System.out.println("acc created");
                     userName = in.readLine();
-                    if (isUserNotExist(userName)) {
-                        Restaurant restaurant = new Restaurant(userName, in.readLine(),
-                                new CoOrdinates(Integer.parseInt(in.readLine()),
-                                                Integer.parseInt(in.readLine())));
-                        restaurants.put(restaurant, this);
-                        subject = restaurant;
-                        //MyServer.serialize(restaurant,"Restaurants");
-                    }else{
-                        // TODO already do exist
+                    while (!isUserNotExist(userName, restaurants)) {
+                        out.println("Code-UserExists");
+                        userName = in.readLine();
                     }
+                    out.println("Code-UserNotExists");
+                    Restaurant restaurant = new Restaurant(userName, in.readLine(),
+                            new CoOrdinates(Integer.parseInt(in.readLine()),
+                                    Integer.parseInt(in.readLine())));
+                    restaurants.put(restaurant, this);
+                    subject = restaurant;
                 }
             }
             System.out.println("New Account Created : " + userName);
             return "Code-Verified";
         }
-        private boolean isUserNotExist(String userName){
-            // TODO look everywhere
+        private boolean isUserNotExist(String userName, Map<Subject, IncomingClientModel> usersList){
+            for (Map.Entry<Subject, IncomingClientModel> entry : usersList.entrySet()){
+                if (entry.getKey().getUserName().equals(userName)){
+                    return false;
+                }
+            }
             return true;
         }
         private String getAllFoodsJson() {
@@ -308,7 +320,6 @@ class MyServer{
             JsonArray jsonFoods = new JsonArray();
             jsonFoods.addAll(commercialEndClient.getCart());
             allFoodsInCart.put("Foods", jsonFoods);
-            System.out.println(allFoodsInCart + "testing");
             return allFoodsInCart.toJson();
         }
         private StringBuffer getAllFoodsInRestaurantJson(){
@@ -321,53 +332,63 @@ class MyServer{
             allFoodsInRestaurantJson.append("]}");
             return allFoodsInRestaurantJson;
         }
-        private void validateOrder() throws IOException {
+        private void validateOrder() throws IOException, DeserializationException {
             JsonObject jsonResponds = new JsonObject();
             JsonArray jsonArray = new JsonArray();
+            System.out.println(commercialEndClient.getCart());
             for (Food food : commercialEndClient.getCart()) {
                 for (Map.Entry<Subject, IncomingClientModel> modelEntry : restaurants.entrySet()) {
-                    if (modelEntry.getKey().getUserName().equals(food.restaurantName())) {
-                        try {
-                            modelEntry.getValue().out.print(""); // pinging the server to get the online status data
-                        } catch (NullPointerException e) {
-                            jsonResponds.putIfAbsent("Code-Type", "InValid");
-                            jsonArray.add(food.toJson());
+                    try {
+                        if (modelEntry.getKey().getUserName().equals(food.restaurantName())) {
+                            try {
+                                modelEntry.getValue().out.print(""); // pinging the server to get the online status data
+                            } catch (NullPointerException e) {
+                                jsonResponds.putIfAbsent("Code-Type", "InValid");
+                                jsonArray.add(food);
+                            }
                         }
+                    }catch (NullPointerException nullPointerException){
+                        continue;
                     }
                 }
             }
             if (jsonResponds.containsKey("Code-Type")){
                 jsonResponds.put("Foods", jsonArray);
-                out.println(jsonResponds.toJson());
             }else{
                 jsonResponds.putIfAbsent("Code-Type", "Valid");
-                out.println(jsonResponds.toJson());
-                placeOrder();
             }
+            placeOrder(jsonResponds);
         }
-        private void placeOrder() throws IOException {
+        private void placeOrder(JsonObject jsonResponds) throws IOException, DeserializationException {
             List<Map.Entry<Subject, IncomingClientModel>> availableDeliveryPeople = deliveryPeople
                     .entrySet()
                     .stream()
                     .filter(e -> {
                 DeliveryPerson deliveryPerson = (DeliveryPerson) e.getKey();
                 return e.getValue() != null && deliveryPerson.isAvailable();
-            }).toList();
-
-            double shortestDistance = 0, currentDistance = 0;
+            }).toList();                                                                            // to filter out the Available delivery people
+            if(availableDeliveryPeople.size() == 0 || jsonResponds.get("Code-Type").equals("InValid")) {
+                jsonResponds.put("Code-Type", "InValid");
+                out.println(jsonResponds.toJson());
+                return;
+            }
+            out.println(jsonResponds.toJson());
             DeliveryPerson nearestDeliveryPerson = null;
+            IncomingClientModel deliveryPersonSession = null;
+            double shortestDistance = 0, currentDistance;
             Food firstPickUp = null;
-            for (Map.Entry<Subject, IncomingClientModel> entry : availableDeliveryPeople){
+            for (Map.Entry<Subject, IncomingClientModel> entry : availableDeliveryPeople) {
                 DeliveryPerson deliveryPerson1 = (DeliveryPerson) entry.getKey();
-                for (Food food : commercialEndClient.getCart()){
-                    for (Map.Entry<Subject, IncomingClientModel> res : restaurants.entrySet()){
-                        if (food.restaurantName().equals(res.getKey().getUserName())){
+                for (Food food : commercialEndClient.getCart()) {
+                    for (Map.Entry<Subject, IncomingClientModel> res : restaurants.entrySet()) {
+                        if (food.restaurantName().equals(res.getKey().getUserName())) {
                             Restaurant restaurant1 = (Restaurant) res.getKey();
                             currentDistance = restaurant1.getCoOrdinates().distance(deliveryPerson1.getCoOrdinates());
-                            if (currentDistance < shortestDistance){
+                            if (currentDistance >= shortestDistance) {
                                 shortestDistance = currentDistance;
                                 nearestDeliveryPerson = deliveryPerson1;
-                                firstPickUp = food;
+                                deliveryPersonSession = entry.getValue();
+                                firstPickUp = food;                                              // to find the best suitable delivery person and the first pickup point
                             }
                         }
                     }
@@ -375,42 +396,55 @@ class MyServer{
             }
             commercialEndClient.getCart().remove(firstPickUp);
             commercialEndClient.getCart().add(0, firstPickUp);
-            Food temp;
-            CoOrdinates currentCoOrdinate;
-            for (int i = 0; i < commercialEndClient.getCart().size() - 1; i++) {
-                currentCoOrdinate = getCoOrdinate(commercialEndClient.getCart().get(i));
-                for (int j = i + 1; j < commercialEndClient.getCart().size(); j++) {
-                    if (currentCoOrdinate.distance(getCoOrdinate(commercialEndClient.getCart().get(i+1))) > currentCoOrdinate.distance(getCoOrdinate(commercialEndClient.getCart().get(j)))){
-                        temp = commercialEndClient.getCart().get(j);
-                        commercialEndClient.getCart().set(j, commercialEndClient.getCart().get(i+1));
-                        commercialEndClient.getCart().set(i+1, temp);
+            if (commercialEndClient.getCart().size() >= 3) {
+                Food temp;
+                CoOrdinates currentCoOrdinate;
+                for (int i = 0; i < commercialEndClient.getCart().size() - 1; i++) {
+                    currentCoOrdinate = getCoOrdinate(commercialEndClient.getCart().get(i));
+                    for (int j = i + 1; j < commercialEndClient.getCart().size(); j++) {
+                        if (currentCoOrdinate.distance(Objects.requireNonNull(getCoOrdinate(commercialEndClient.getCart().get(i + 1)))) > currentCoOrdinate.distance(Objects.requireNonNull(getCoOrdinate(commercialEndClient.getCart().get(j))))) {
+                            temp = commercialEndClient.getCart().get(j);
+                            commercialEndClient.getCart().set(j, commercialEndClient.getCart().get(i + 1));
+                            commercialEndClient.getCart().set(i + 1, temp);                          // to find the track path from the pickup point and the delivery point
+                        }
                     }
                 }
             }
-            System.out.println(commercialEndClient.getCart());
-            deliveryPeople.get(nearestDeliveryPerson).out.println("Code-TakeDelivery");
+            JsonObject temp;
+            JsonObject jsonObject = (JsonObject) Jsoner.deserialize(getAllFoodsInCartJson());
+            JsonArray jsonFoodArray = (JsonArray) jsonObject.get("Foods");
+            float total = 0;
+            for (int i = 0; jsonFoodArray.size() > i; i++){
+                temp = (JsonObject) jsonFoodArray.get(i);
+                total += Float.parseFloat(String.valueOf(temp.get("foodPrize")));
+            }
+            deliveryPersonSession.out.println("Code-TakeDelivery");
+            deliveryPersonSession.out.println(getAllFoodsInCartJson());
+            out.println(nearestDeliveryPerson.getUserName());
+            out.println(String.valueOf(total+40));
+            System.out.println("Done");
+
             // TODO calc time
-            in.readLine();
+
+            System.out.println("Successful");
         }
         private void updateNewFood(String foodJsonString) throws DeserializationException {
             JsonObject foodJson = (JsonObject) Jsoner.deserialize(foodJsonString);
             restaurant.addFood(foodJson.get("foodName").toString(),Float.parseFloat(foodJson.get("foodPrize").toString()));
             System.out.println(foodJson);
         }
-
         private CoOrdinates getCoOrdinate(Food food){
-            // TODO Food is null
+            System.out.println(food);
             for (Map.Entry<Subject, IncomingClientModel> res : restaurants.entrySet()) {
                 if (food.restaurantName().equals(res.getKey().getUserName())) {
                     return res.getKey().getCoOrdinates();
                 }
             }
-            System.out.println("NUll Data");
+            System.out.println("NULL DATA");
             return null;
         }
     }
 }
-
 record Food(String foodName, float foodPrize, String restaurantName) implements Serializable, Jsonable {
 
     @Override

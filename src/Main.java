@@ -4,41 +4,45 @@ import org.json.simple.JsonObject;
 import org.json.simple.Jsoner;
 import java.io.*;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Scanner;
+import java.sql.SQLOutput;
+import java.util.*;
 
-
-public class Main {
+class Main {
     static {
         System.loadLibrary("clearScreen");
     }
     public native static void clearScreen();
 
     public static void main(String[] args) throws IOException, DeserializationException, InterruptedException {
-        System.out.print("""
+        while (true) {
+            System.out.print("""
                 Enter 1 to Enter as Commercial End User
                 Enter 2 to Enter as Delivery Person
                 Enter 3 to Enter as Restaurant User :
                 """);
-        switch (new Scanner(System.in).nextInt()){
-            case 1 -> {
-                clearScreen();
-                new CommercialEndClient();
-            }
-            case 2 -> {
-                clearScreen();
-                new DeliveryPerson();
-            }
-            case 3 -> {
-                clearScreen();
-                new Restaurant();
+            try {
+                switch (new Scanner(System.in).nextInt()) {
+                    case 1 -> {
+                        clearScreen();
+                        new CommercialEndClient();
+                    }
+                    case 2 -> {
+                        clearScreen();
+                        new DeliveryPerson();
+                    }
+                    case 3 -> {
+                        clearScreen();
+                        new Restaurant();
+                    }
+                }
+                break;
+            }catch (InputMismatchException inputMismatchException){
+                System.out.println("Input type mismatch, Retry");
+                continue;
             }
         }
     }
 }
-
 interface Authenticator {
     Scanner scanner = new Scanner(System.in);
     default String login(String subjectType, PrintWriter out, BufferedReader in) throws IOException {
@@ -52,6 +56,11 @@ interface Authenticator {
             System.out.print("Enter your E-Name : ");
             userName = scanner.nextLine();
             out.println(userName);
+            while (in.readLine().equals("Code-UserDoesn'tExist")) {
+                System.out.println("User ID Doesn't Exist retry...\nEnter your E-Name : ");
+                userName = scanner.nextLine();
+                out.println(userName);
+            }
             System.out.print("Enter the Password : ");
             out.println(scanner.nextLine());
             serverResponds = in.readLine();
@@ -61,14 +70,6 @@ interface Authenticator {
                     return userName;
                 }
                 case "Code-InvalidPassword" -> System.out.println("Invalid Password\nAttempts left "+ attempts);
-                case "Code-UserDoesn'tExist" -> {
-                    System.out.println("User Id Doesn't Exist, Retry");
-                    continue;
-                }
-                case "Code-AttemptExpired" -> {
-                    System.out.println("Attempts Expired");
-                    return null;
-                }
             }
             attempts--;
         }while (attempts > 0);
@@ -76,26 +77,32 @@ interface Authenticator {
     }
     default String createAccount(String subjectType, PrintWriter out, BufferedReader in) throws IOException{
         String userName, password;
+        scanner.nextLine();
         do {
-            scanner.nextLine();
             out.println("Code-CreateAccount");
             out.println(subjectType);
-            System.out.print("Enter the E-Name : ");
             do{
+                System.out.print("Enter the E-Name : ");
                 userName = scanner.nextLine();
                 if(!userName.matches("[a-z0-9]+@[a-z]+\\..*")){
-                    System.err.print("Invalid E-Mail, Re-Type : ");                          // TODO if the acc mail is already exist.
-                }else {
-                    break;
+                    System.out.print("Invalid E-Mail formate, Re-Type : ");
+                }else{
+                    out.println(userName);
+                    if(in.readLine().equals("Code-UserExists")) {
+                        System.out.println("Already do Exist");
+                    }else{
+                        System.out.println("Valid E-Mail");
+                        break;
+                    }
                 }
             }while (true);
-            out.println(userName);
+
             System.out.print("NOTE : Minimum eight characters, at least one uppercase letter, one lowercase letter and one number\n" +
                     "Enter the password : ");
             do{
                 password = scanner.nextLine();
                 if (!password.matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)[a-zA-Z\\d]{8,}$")){
-                    System.err.print("Invalid Password Format, Re-type : ");
+                    System.out.print("Invalid Password Format, Re-type : ");
                 }else {
                     break;
                 }
@@ -115,14 +122,20 @@ interface Authenticator {
                 Enter 1 to login to your Account
                 Enter 2 to Create new Account :\s
                 """);
-        return switch (scanner.nextInt()){
-            case 1 -> login(subjectType,out,in);
-            case 2 -> createAccount(subjectType, out, in);
-            default -> authenticate(subjectType, out, in);
-        };
+        try{
+            return switch (scanner.nextInt()){
+                case 1 -> login(subjectType,out,in);
+                case 2 -> createAccount(subjectType, out, in);
+                default -> authenticate(subjectType, out, in);
+            };
+        }
+        catch (InputMismatchException inputMismatchException){
+            System.out.println("Input Type Mismatch, enter properly");
+            scanner.nextLine();
+            return authenticate(subjectType, out,in);
+        }
     }
 }
-
 sealed abstract class Subject implements Serializable permits CommercialEndClient, DeliveryPerson, Restaurant{
     abstract String getUserName();
     abstract String getPassword();
@@ -146,6 +159,11 @@ final class CommercialEndClient extends Subject implements Authenticator {
         userName = Authenticator.super.authenticate("CommercialEndClient", out, in);
         mainMenu();
     }
+    public CommercialEndClient(String userName, String password, CoOrdinates coOrdinates) {
+        this.userName = userName;
+        this.password = password;
+        this.coOrdinates = coOrdinates;
+    }
 
     private void mainMenu() throws IOException, DeserializationException, InterruptedException {
         JsonObject temp;
@@ -156,61 +174,85 @@ final class CommercialEndClient extends Subject implements Authenticator {
                 Enter 2 to View your Cart
                 Enter 3 or any number to Exit :
                 """);
-            int option = scanner.nextInt();
-            scanner.nextLine();
-            switch (option) {
-                case 1 -> {
-                    out.println("Code-ViewAllFoods");
-                    JsonObject jsonObject = (JsonObject) Jsoner.deserialize(in.readLine()); // parse json
-                    JsonArray jsonFoodArray = (JsonArray) jsonObject.get("Foods");
-                    for (int i = 0 ;jsonFoodArray.size() > i; i++){
-                        temp = (JsonObject) jsonFoodArray.get(i);
-                        System.out.println(
-                                "ID"+i+"\n" +
-                                ""+temp.get("foodName") +"\n" +
-                                "Prize : " + temp.get("foodPrize")+"\n"+
-                                "restaurantName : " + temp.get("restaurantName") + "\n");
-                    }
-                    System.out.print("""
-                            Enter Food ID to add to Cart
-                            Enter CART to view your CART
-                            Enter EXIT to get back to Main Menu :
-                            """);
-                    String option1 = scanner.nextLine();
-                    if (option1.equals("CART")){
-                        viewCart();
-                    }else if(option1.equals("EXIT")){
-                        mainMenu();
-                        break mainMenu;
-                    }else{
-                        if (option1.matches("(ID)\\d+")) {
-                            out.println("Code-AddFoodToCart");
-                            JsonObject jsonFood = (JsonObject) jsonFoodArray.get(Integer.parseInt(option1.substring(2)));
-                            out.println(jsonFood.toJson());
-                        }else {
-                            System.err.println("INVALID Entry");
+            try {
+                int option = scanner.nextInt();
+                scanner.nextLine();
+                switch (option) {
+                    case 1 -> {
+                        out.println("Code-ViewAllFoods");
+                        JsonObject jsonObject;
+                        JsonArray jsonFoodArray = null;
+                        try {
+                            jsonObject = (JsonObject) Jsoner.deserialize(in.readLine());
+                            jsonFoodArray = (JsonArray) jsonObject.get("Foods");
+                            for (int i = 0; jsonFoodArray.size() > i; i++) {
+                                temp = (JsonObject) jsonFoodArray.get(i);
+                                System.out.println(
+                                        "ID" + i + "\n" +
+                                                "" + temp.get("foodName") + "\n" +
+                                                "Prize : " + temp.get("foodPrize") + "\n" +
+                                                "restaurantName : " + temp.get("restaurantName") + "\n");
+                            }
+                        } catch (DeserializationException deserializationException) {
+                            System.out.println("No Data in Your DB");
+                        }
+                        System.out.print("""
+                                Enter Food ID to add to Cart
+                                Enter CART to view your CART
+                                Enter EXIT to get back to Main Menu :
+                                """);
+                        String option1 = scanner.nextLine();
+                        if (option1.equals("CART")) {
+                            viewCart();
+                        } else if (option1.equals("EXIT")) {
+                            mainMenu();
+                            break mainMenu;
+                        } else {
+                            if (option1.matches("(ID)\\d+")) {
+                                out.println("Code-AddFoodToCart");
+                                JsonObject jsonFood = (JsonObject) jsonFoodArray.get(Integer.parseInt(option1.substring(2)));
+                                out.println(jsonFood.toJson());
+                            } else {
+                                System.out.println("INVALID Entry");
+                            }
                         }
                     }
+                    case 2 -> viewCart();
+                    default -> {
+                        out.println("Code-EXIT");
+                        break mainMenu;
+                    }
                 }
-                case 2 -> viewCart();
-                default -> {
-                    break mainMenu;
-                }
+            }catch (InputMismatchException inputMismatchException){
+                scanner.nextLine();
+                continue;
             }
         }
     }
     private void viewCart() throws IOException, DeserializationException {
         out.println("Code-ViewCart");
         JsonObject jsonCart = (JsonObject) Jsoner.deserialize(in.readLine());
-        JsonArray jsonCartFoods = (JsonArray) jsonCart.get("Foods");
-        JsonObject food;
-        for (int i = 0 ;jsonCartFoods.size() > i; i++){
-            food = (JsonObject) jsonCartFoods.get(i);
-            System.out.println(
-                    "ID"+i+"\n" +
-                    food.get("foodName") + "\n" +
-                    "Prize : " + food.get("foodPrize") + "\n"+
-                    "RestaurantName : " + food.get("restaurantName") + "\n");
+
+        JsonArray jsonCartFoods = null;
+        try {
+            jsonCartFoods = (JsonArray) jsonCart.get("Foods");
+            JsonObject food;
+            for (int i = 0; jsonCartFoods.size() > i; i++) {
+                food = (JsonObject) jsonCartFoods.get(i);
+                try {
+                    System.out.println(
+                            "ID" + i + "\n" +
+                                    food.get("foodName") + "\n" +
+                                    "Prize : " + food.get("foodPrize") + "\n" +
+                                    "RestaurantName : " + food.get("restaurantName") + "\n");
+                }catch (NullPointerException nullPointerException){
+                    continue;
+                }
+            }
+        }catch (Exception e){
+            System.out.println("No Food in your cart");
+            e.printStackTrace();
+            return;
         }
         System.out.print("""
                     Enter ID number to REMOVE from the CART
@@ -221,19 +263,31 @@ final class CommercialEndClient extends Subject implements Authenticator {
         if (option.equals("BOOK")) {
             out.println("Code-CheckOutTheCart");
             JsonObject jsonResponds = (JsonObject) Jsoner.deserialize(in.readLine());
-            System.out.println(jsonResponds.get("Code-Type"));
+            System.out.println(jsonResponds.get("Code-Type") + "\n");
             if (jsonResponds.get("Code-Type").equals("InValid")) {
-                JsonArray jsonFoodArray = (JsonArray) jsonResponds.get("Foods");
-                for (int i = 0; i < jsonFoodArray.size(); i++) {
-                    JsonObject jsonFood = (JsonObject) jsonFoodArray.get(i);
-                    System.out.println(
-                        jsonFood.get("foodName") + "\n" +
-                        "Prize : " + jsonFood.get("foodPrize") + "\n" +
-                        "RestaurantName : " + jsonFood.get("restaurantName") + "\n");
+                JsonArray jsonFoodArray = null;
+                try {
+                    jsonFoodArray = (JsonArray) jsonResponds.get("Foods");
+                    if (jsonFoodArray == null) throw new NullPointerException();
+                }catch (Exception e){
+                    System.out.println("NO Delivery Agents at this Moment");
+                    return;
                 }
-                System.out.println("The Above Food cannot be Delivered at this Moment, Try after removing from the Cart");
+                JsonObject jsonFood;
+                for (int i = 0; i < jsonFoodArray.size(); i++) {
+                    jsonFood = (JsonObject) jsonFoodArray.get(i);
+                    System.out.println(
+                            jsonFood.get("foodName") + "\n" +
+                                    "Prize : " + jsonFood.get("foodPrize") + "\n" +
+                                    "RestaurantName : " + jsonFood.get("restaurantName") + "\n");
+                }
+                System.out.println("The Above Foods cannot be Delivered at this Moment, Try after removing them from the Cart");
+
             }else if(jsonResponds.get("Code-Type").equals("Valid")){
-                // Order placed
+                System.out.println(in.readLine());
+                System.out.println("Order Delivered , Total : ");
+                System.out.println(in.readLine());
+
             }
         }else if(option.matches("(ID)\\d+")){
             out.println("Code-RemoveFoodFromCart");
@@ -242,25 +296,23 @@ final class CommercialEndClient extends Subject implements Authenticator {
         }else if(option.equals("EXIT")){
             return;                            // unnecessary
         }else{
-            System.err.println("Invalid Entry");
+            System.out.println("Invalid Entry");
             viewCart();
         }
     }
-    public CommercialEndClient(String userName, String password, CoOrdinates coOrdinates) {
-        this.userName = userName;
-        this.password = password;
-        this.coOrdinates = coOrdinates;
-    }
-
     public void addToCart(JsonObject foodJson){
         cart.add(new Food((String) foodJson.get("foodName"),
                 Float.parseFloat((String) foodJson.get("foodPrize")),
                 (String)foodJson.get("restaurantName")));
     }
     public void removeFromCart(JsonObject foodJson){
-        cart.remove(new Food((String) foodJson.get("foodName"),
-                Float.parseFloat((String)foodJson.get("foodPrize")),
-                (String) foodJson.get("restaurantName")));
+        try{
+            cart.remove(new Food((String) foodJson.get("foodName"),
+                    Float.parseFloat((String)foodJson.get("foodPrize")),
+                    (String) foodJson.get("restaurantName")));
+        }catch (NullPointerException nullPointerException){
+
+        }
     }
 
     @Override
@@ -282,61 +334,6 @@ final class CommercialEndClient extends Subject implements Authenticator {
         return cart;
     }
 }
-final class DeliveryPerson extends Subject implements Authenticator{
-    private final String userName;
-    private String password;
-    private PrintWriter out;
-    private BufferedReader in;
-    private CoOrdinates coOrdinates;
-    private boolean isAvailable = true;
-    DeliveryPerson() throws IOException{
-        try{
-            Socket socket = new Socket("127.0.0.1", 77_77);
-            this.out = new PrintWriter(socket.getOutputStream(), true);
-            this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        } catch (IOException exception){
-            System.out.println("Err in establishing Sockets");
-        }
-        userName = Authenticator.super.authenticate("DeliveryPerson", out, in);
-        mainMenu();
-    }
-
-    public DeliveryPerson(String userName, String password, CoOrdinates coOrdinates) {
-        this.userName = userName;
-        this.password = password;
-        this.coOrdinates = coOrdinates;
-    }
-    private void mainMenu() throws IOException {
-        while (true){
-            if (in.readLine().equals("Code-TakeDelivery")){
-                System.out.println("testing`");
-            }
-        }
-    }
-
-    @Override
-    public String getUserName() {
-        return userName;
-    }
-
-    @Override
-    public String getPassword() {
-        return password;
-    }
-
-    @Override
-    public CoOrdinates getCoOrdinates() {
-        return coOrdinates;
-    }
-
-    public boolean isAvailable() {
-        return isAvailable;
-    }
-
-    public void setAvailable(boolean available) {
-        isAvailable = available;
-    }
-}
 final class Restaurant extends Subject implements Authenticator{
     private final String userName;
     private String password;
@@ -345,7 +342,7 @@ final class Restaurant extends Subject implements Authenticator{
     private Socket socket;
     private CoOrdinates coOrdinates;
     private List<Food> foods = new LinkedList<>();
-    Restaurant() throws IOException{
+    Restaurant() throws IOException, DeserializationException {
         try{
             this.socket = new Socket("127.0.0.1", 77_77);
             this.out = new PrintWriter(socket.getOutputStream(), true);
@@ -367,7 +364,8 @@ final class Restaurant extends Subject implements Authenticator{
         this.password = password;
         this.coOrdinates = coOrdinates;
     }
-    void mainMenu() throws IOException {
+    void mainMenu() throws IOException, DeserializationException {
+        JsonObject temp;
         System.out.print("""
                 Enter 1 to View All Foods in Your Restaurant
                 Enter 2 to Add a Food Item in Your Restaurant
@@ -377,7 +375,20 @@ final class Restaurant extends Subject implements Authenticator{
             case 1 -> {
                 Main.clearScreen();
                 out.println("Code-ViewFoodsInRestaurant");
-                System.out.println(in.readLine());
+                try {
+                    JsonObject jsonObject = (JsonObject) Jsoner.deserialize(in.readLine()); // parse json
+                    JsonArray jsonFoodArray = (JsonArray) jsonObject.get("Foods");
+                    for (int i = 0; jsonFoodArray.size() > i; i++) {
+                        temp = (JsonObject) jsonFoodArray.get(i);
+                        System.out.println(
+                                "ID" + i + "\n" +
+                                        "" + temp.get("foodName") + "\n" +
+                                        "Prize : " + temp.get("foodPrize") + "\n" +
+                                        "restaurantName : " + temp.get("restaurantName") + "\n");
+                    }
+                }catch (DeserializationException deserializationException){
+                    System.out.println("No Food data in  the Restaurant");
+                }
                 mainMenu();
             }
             case 2 -> {
@@ -392,7 +403,7 @@ final class Restaurant extends Subject implements Authenticator{
         }
     }
 
-    private void addFoodJson() throws IOException {
+    private void addFoodJson() throws IOException, DeserializationException {
         out.println("Code-AddAFoodInRestaurant");
         String foodName, foodPrize;
         scanner.nextLine();
@@ -443,5 +454,105 @@ final class Restaurant extends Subject implements Authenticator{
     public boolean equals(Object obj) {
         Restaurant restaurant = (Restaurant) obj;
         return this.userName.equals(restaurant.userName);
+    }
+}
+final class DeliveryPerson extends Subject implements Authenticator{
+    private final String userName;
+    private String password;
+    private PrintWriter out;
+    private BufferedReader in;
+    private CoOrdinates coOrdinates;
+    private boolean isAvailable = true;
+    DeliveryPerson() throws IOException, DeserializationException {
+        try{
+            Socket socket = new Socket("127.0.0.1", 77_77);
+            this.out = new PrintWriter(socket.getOutputStream(), true);
+            this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        } catch (IOException exception){
+            System.out.println("Err in establishing Sockets");
+        }
+        userName = Authenticator.super.authenticate("DeliveryPerson", out, in);
+        new Thread(()->{
+            while (true){
+                if (this.isAvailable){
+                    System.out.println("Enter 1 change the status to UnAvailable");
+                    try{
+                        if (scanner.nextInt() == 1){
+                            out.println("Code-UnAvailable");
+                            System.out.println("Status updated to Unavailable");
+                            this.setAvailable(false);
+                        }else {
+                            throw new InputMismatchException();
+                        }
+                    }catch (InputMismatchException inputMismatchException){
+                        System.out.println("Invalid entry, retry");
+                        continue;
+                    }
+                }else {
+                    System.out.println("Enter 1 change the status Available");
+                    try{
+                        if (scanner.nextInt() == 1){
+                            out.println("Code-Available");
+                            System.out.println("Status updated to Available");
+                            this.setAvailable(true);
+                        }else {
+                            throw new InputMismatchException();
+                        }
+                    }catch (InputMismatchException inputMismatchException){
+                        System.out.println("Invalid entry, retry");
+                        continue;
+                    }
+                }
+            }
+        }).start();
+        mainMenu();
+    }
+
+    public DeliveryPerson(String userName, String password, CoOrdinates coOrdinates) {
+        this.userName = userName;
+        this.password = password;
+        this.coOrdinates = coOrdinates;
+    }
+    private void mainMenu() throws IOException, DeserializationException {
+        JsonObject temp;
+        while (true){
+            if (in.readLine().equals("Code-TakeDelivery")){
+                JsonObject jsonObject = (JsonObject) Jsoner.deserialize(in.readLine());
+                JsonArray jsonFoodArray = (JsonArray) jsonObject.get("Foods");
+                for (int i = 0; jsonFoodArray.size() > i; i++){
+                    temp = (JsonObject) jsonFoodArray.get(i);
+                    System.out.println(
+                            "ID" + i + "\n" +
+                            "" + temp.get("foodName") + "\n" +
+                            "Prize : " + temp.get("foodPrize") + "\n" +
+                            "restaurantName : " + temp.get("restaurantName") + "\n");
+        }
+                out.println("Delivered");
+                System.out.println("Done");
+            }
+        }
+    }
+
+    @Override
+    public String getUserName() {
+        return userName;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    @Override
+    public CoOrdinates getCoOrdinates() {
+        return coOrdinates;
+    }
+
+    public boolean isAvailable() {
+        return isAvailable;
+    }
+
+    public void setAvailable(boolean available) {
+        isAvailable = available;
     }
 }
